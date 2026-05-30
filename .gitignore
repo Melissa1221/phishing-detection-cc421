@@ -1,0 +1,15 @@
+# entornos
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# datos pesados (se descargan/regeneran solos)
+data/raw/*.zip
+data/raw/*.csv
+data/processed/*.csv
+
+# jupyter
+.ipynb_checkpoints/
+
+.DS_Store
