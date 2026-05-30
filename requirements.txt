@@ -1,0 +1,13 @@
+# CC421 Inteligencia Artificial - deteccion de phishing
+# versiones fijadas, probado con python 3.12 (en colab 3.10/3.11 tambien jala)
+
+scikit-learn==1.5.2
+imbalanced-learn==0.12.4
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+matplotlib==3.9.2
+seaborn==0.13.2
+nltk==3.9.1
+joblib==1.4.2
+threadpoolctl==3.6.0
