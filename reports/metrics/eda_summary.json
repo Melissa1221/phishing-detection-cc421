@@ -1,0 +1,185 @@
+{
+  "class_distribution": {
+    "total": 30461,
+    "legit": 15910,
+    "phishing": 14551,
+    "phishing_ratio": 0.4776927874987689
+  },
+  "length_stats": {
+    "mean_tokens": 305.97212829519714,
+    "median_tokens": 154.0,
+    "p95_tokens": 935.0,
+    "max_tokens": 45450
+  },
+  "figures": {
+    "class_distribution": "/Users/melissaimannoriega/Documents/UNI/cl-uni/docs/2026-1/cursos/ia/proyecto-final/phishing-detection/reports/figures/class_distribution.png",
+    "length_distribution": "/Users/melissaimannoriega/Documents/UNI/cl-uni/docs/2026-1/cursos/ia/proyecto-final/phishing-detection/reports/figures/length_distribution.png",
+    "top_words": "/Users/melissaimannoriega/Documents/UNI/cl-uni/docs/2026-1/cursos/ia/proyecto-final/phishing-detection/reports/figures/top_words.png"
+  },
+  "top_words": {
+    "legit": [
+      [
+        "num_token",
+        298455
+      ],
+      [
+        "enron",
+        53915
+      ],
+      [
+        "ect",
+        34722
+      ],
+      [
+        "hou",
+        16659
+      ],
+      [
+        "please",
+        12510
+      ],
+      [
+        "com",
+        12031
+      ],
+      [
+        "subject",
+        11792
+      ],
+      [
+        "would",
+        11705
+      ],
+      [
+        "company",
+        9425
+      ],
+      [
+        "pm",
+        9169
+      ],
+      [
+        "cc",
+        9093
+      ],
+      [
+        "said",
+        8926
+      ],
+      [
+        "energy",
+        8876
+      ],
+      [
+        "gas",
+        8596
+      ],
+      [
+        "new",
+        8564
+      ],
+      [
+        "vince",
+        8547
+      ],
+      [
+        "thanks",
+        6983
+      ],
+      [
+        "power",
+        6964
+      ],
+      [
+        "corp",
+        6770
+      ],
+      [
+        "know",
+        6741
+      ]
+    ],
+    "phishing": [
+      [
+        "num_token",
+        167293
+      ],
+      [
+        "com",
+        9822
+      ],
+      [
+        "company",
+        9510
+      ],
+      [
+        "http",
+        7453
+      ],
+      [
+        "email",
+        6745
+      ],
+      [
+        "information",
+        6490
+      ],
+      [
+        "please",
+        6233
+      ],
+      [
+        "statements",
+        5730
+      ],
+      [
+        "us",
+        5410
+      ],
+      [
+        "may",
+        5297
+      ],
+      [
+        "one",
+        5051
+      ],
+      [
+        "get",
+        5038
+      ],
+      [
+        "time",
+        4666
+      ],
+      [
+        "money",
+        4638
+      ],
+      [
+        "de",
+        4632
+      ],
+      [
+        "www",
+        4582
+      ],
+      [
+        "new",
+        4488
+      ],
+      [
+        "business",
+        4416
+      ],
+      [
+        "price",
+        4149
+      ],
+      [
+        "within",
+        4015
+      ]
+    ]
+  }
+}
