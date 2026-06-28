@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import StratifiedKFold, cross_val_score, learning_curve
 
-from . import config, eda
-from .data_loader import load_corpus
+from . import config, eda, interpret
+from .data_loader import load_corpus, load_enron
 from .evaluate import (
     _proba_positive,
     compute_metrics,
@@ -97,7 +97,9 @@ def main(argv=None):
     print(json.dumps(eda_summary["length_stats"], indent=2, ensure_ascii=False))
 
     print("\n=== 4) Particion estratificada 70/15/15 ===")
-    split = stratified_split(df["clean_text"].values, df["label"].values)
+    split = stratified_split(
+        df["clean_text"].values, df["label"].values, source=df["source"].values
+    )
     print(
         f"[pipeline] train={len(split['X_train'])}, "
         f"val={len(split['X_val'])}, test={len(split['X_test'])}"
@@ -163,6 +165,53 @@ def main(argv=None):
 
     print("\n=== 8) Curva de aprendizaje (modelo ganador) ===")
     save_learning_curve(best_name, build_models()[best_name], split["X_train"], split["y_train"])
+
+    print("\n=== 9) Interpretabilidad por pesos del modelo ===")
+    if "logistic_regression" in trained:
+        interpret.save_top_weighted_terms(trained["logistic_regression"])
+    else:
+        print("[pipeline] logistic_regression no entrenado; se omite analisis de pesos.")
+
+    print("\n=== 10) Analisis de errores ===")
+    source_test = split.get("source_test")
+    interpret.error_analysis(
+        best_model,
+        split["X_test"],
+        split["y_test"],
+        source_test=source_test,
+        texts_test=split["X_test"],
+    )
+    if source_test is not None:
+        interpret.metrics_by_source(best_model, split["X_test"], split["y_test"], source_test)
+
+    print("\n=== 11) Tabla comparativa Enron-solo vs multi-fuente ===")
+    df_enron = load_enron()
+    df_enron["text"] = (df_enron["subject"] + " " + df_enron["message"]).str.strip()
+    df_enron["clean_text"] = preprocess_series(df_enron["text"])
+    df_enron = df_enron[df_enron["clean_text"].str.len() > 0].reset_index(drop=True)
+    if args.sample:
+        df_enron = df_enron.sample(
+            n=min(args.sample, len(df_enron)), random_state=config.RANDOM_STATE
+        ).reset_index(drop=True)
+    split_enron = stratified_split(df_enron["clean_text"].values, df_enron["label"].values)
+    model_enron_lr = build_models()["logistic_regression"]
+    train_model("logistic_regression_enron", model_enron_lr, split_enron["X_train"], split_enron["y_train"])
+    m_enron = compute_metrics(model_enron_lr, split_enron["X_test"], split_enron["y_test"], "lr_enron")
+    m_multi = compute_metrics(
+        trained["logistic_regression"], split["X_test"], split["y_test"], "lr_multi"
+    )
+    interpret.comparative_table(m_enron, m_multi)
+
+    print("\n=== 12) Auditoria adversarial (tokens de identidad Enron) ===")
+
+    def _train_lr(X, y):
+        m = build_models()["logistic_regression"]
+        m.fit(X, y)
+        return m
+
+    interpret.adversarial_audit(
+        _train_lr, split["X_train"], split["y_train"], split["X_test"], split["y_test"]
+    )
 
     path = save_model("best_model", best_model)
     with open(config.MODELS_DIR / "best_model.meta.json", "w", encoding="utf-8") as f:
