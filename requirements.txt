@@ -11,3 +11,6 @@ seaborn==0.13.2
 nltk==3.9.1
 joblib==1.4.2
 threadpoolctl==3.6.0
+
+# embeddings neurales (sección 10.5 del notebook — comparación con TF-IDF)
+sentence-transformers>=3.0.0
