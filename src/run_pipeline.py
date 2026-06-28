@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import random
 import time
 
@@ -21,10 +22,18 @@ from .evaluate import (
     save_confusion_matrix,
     save_metrics_json,
     save_roc_pr_curves,
+    threshold_sweep,
 )
 from .features import stratified_split
 from .preprocess import preprocess_series
-from .train import build_models, save_model, train_model
+from .train import build_models, save_model, train_model, tune_model
+
+log = logging.getLogger("pipeline")
+
+
+def _setup_logging():
+    fmt = "[%(asctime)s %(levelname)s] %(message)s"
+    logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
 
 
 def set_seeds():
@@ -72,53 +81,54 @@ def main(argv=None):
     parser.add_argument("--no-cv", action="store_true", help="Saltar validacion cruzada.")
     args = parser.parse_args(argv)
 
+    _setup_logging()
     set_seeds()
     t_start = time.perf_counter()
 
-    print("\n=== 1) Carga y consolidacion del corpus ===")
+    log.info("=== 1) Carga y consolidacion del corpus ===")
     df = load_corpus()
     if args.sample:
         df = df.sample(n=min(args.sample, len(df)), random_state=config.RANDOM_STATE)
         df = df.reset_index(drop=True)
-        print(f"[pipeline] Muestreo de depuracion: {len(df)} correos.")
+        log.info("Muestreo de depuracion: %d correos.", len(df))
 
-    print("\n=== 2) Limpieza y normalizacion ===")
+    log.info("=== 2) Limpieza y normalizacion ===")
     t0 = time.perf_counter()
     df["clean_text"] = preprocess_series(df["text"])
-    # al limpiar algunos quedan vacios (solo stopwords o simbolos)
     df = df[df["clean_text"].str.len() > 0].reset_index(drop=True)
-    print(f"[pipeline] Limpieza completada en {time.perf_counter() - t0:.1f}s "
-          f"({len(df)} correos no vacios).")
+    log.info("Limpieza completada en %.1fs (%d correos no vacios).", time.perf_counter() - t0, len(df))
     df.to_csv(config.PROCESSED_DIR / "corpus_clean.csv", index=False)
 
-    print("\n=== 3) Analisis exploratorio (EDA) ===")
+    log.info("=== 3) Analisis exploratorio (EDA) ===")
     eda_summary = eda.run_eda(df, clean_col="clean_text")
-    print(json.dumps(eda_summary["class_distribution"], indent=2, ensure_ascii=False))
-    print(json.dumps(eda_summary["length_stats"], indent=2, ensure_ascii=False))
+    log.info("Distribucion: %s", json.dumps(eda_summary["class_distribution"], ensure_ascii=False))
 
-    print("\n=== 4) Particion estratificada 70/15/15 ===")
+    log.info("=== 4) Particion estratificada 70/15/15 ===")
     split = stratified_split(
         df["clean_text"].values, df["label"].values, source=df["source"].values
     )
-    print(
-        f"[pipeline] train={len(split['X_train'])}, "
-        f"val={len(split['X_val'])}, test={len(split['X_test'])}"
+    log.info(
+        "train=%d, val=%d, test=%d",
+        len(split["X_train"]), len(split["X_val"]), len(split["X_test"]),
     )
 
-    print("\n=== 5) Entrenamiento de modelos ===")
+    log.info("=== 5) Entrenamiento y ajuste de hiperparametros (GridSearchCV) ===")
     models = build_models()
     trained = {}
     train_times = {}
     cv_results = {}
+    best_params: dict[str, dict] = {}
     cv = StratifiedKFold(n_splits=config.CV_FOLDS, shuffle=True, random_state=config.RANDOM_STATE)
 
     for name, model in models.items():
-        fitted, elapsed = train_model(name, model, split["X_train"], split["y_train"])
+        fitted, elapsed = tune_model(name, model, split["X_train"], split["y_train"])
         trained[name] = fitted
         train_times[name] = elapsed
+        if hasattr(fitted, "best_params_"):
+            best_params[name] = fitted.best_params_
         if not args.no_cv:
             scores = cross_val_score(
-                build_models()[name],  # pipeline nuevo para que el CV sea honesto
+                build_models()[name],
                 split["X_train"],
                 split["y_train"],
                 cv=cv,
@@ -126,9 +136,15 @@ def main(argv=None):
                 n_jobs=-1,
             )
             cv_results[name] = {"f1_mean": float(scores.mean()), "f1_std": float(scores.std())}
-            print(f"[cv] {name}: F1 = {scores.mean():.4f} +/- {scores.std():.4f}")
+            log.info("[cv] %s: F1 = %.4f +/- %.4f", name, scores.mean(), scores.std())
 
-    print("\n=== 6) Evaluacion en validacion ===")
+    if best_params:
+        bp_path = config.METRICS_DIR / "best_hyperparams.json"
+        with open(bp_path, "w", encoding="utf-8") as _f:
+            json.dump(best_params, _f, indent=2, ensure_ascii=False)
+        log.info("Hiperparametros optimos guardados en %s", bp_path)
+
+    log.info("=== 6) Evaluacion en validacion ===")
     val_metrics = []
     val_scores_for_curves = {}
     for name, model in trained.items():
@@ -139,40 +155,53 @@ def main(argv=None):
             m["cv_f1_std"] = cv_results[name]["f1_std"]
         val_metrics.append(m)
         val_scores_for_curves[name] = _proba_positive(model, split["X_val"])
-        print(
-            f"[val] {name}: F1={m['f1']:.4f} recall={m['recall']:.4f} "
-            f"precision={m['precision']:.4f} PR-AUC={m['pr_auc']:.4f}"
+        log.info(
+            "[val] %s: F1=%.4f recall=%.4f precision=%.4f PR-AUC=%.4f",
+            name, m["f1"], m["recall"], m["precision"], m["pr_auc"],
         )
 
     best_name = max(val_metrics, key=lambda d: d["f1"])["model"]
     best_model = trained[best_name]
-    print(f"\n[pipeline] Mejor modelo por F1 en validacion: {best_name}")
+    log.info("Mejor modelo por F1 en validacion: %s", best_name)
 
     save_roc_pr_curves(val_scores_for_curves, split["y_val"])
     for name, model in trained.items():
         save_confusion_matrix(model, split["X_val"], split["y_val"], name)
     save_metrics_json(val_metrics, "val_metrics.json")
 
-    # evaluacion final en test, una sola vez
-    print("\n=== 7) Evaluacion final en TEST (mejor modelo) ===")
+    log.info("=== 6b) Threshold sweep en validacion (mejor modelo) ===")
+    sweep = threshold_sweep(best_model, split["X_val"], split["y_val"])
+    log.info(
+        "Threshold optimo: t=%.2f  F1=%.4f",
+        sweep["best_threshold"]["threshold"], sweep["best_threshold"]["f1"],
+    )
+
+    log.info("=== 7) Evaluacion final en TEST (mejor modelo) ===")
     test_metrics = compute_metrics(best_model, split["X_test"], split["y_test"], best_name)
     targets = meets_targets(test_metrics)
     test_metrics["targets_met"] = targets
     save_confusion_matrix(best_model, split["X_test"], split["y_test"], f"{best_name}_TEST")
     save_metrics_json([test_metrics], "test_metrics.json")
-    print(json.dumps({k: v for k, v in test_metrics.items() if k != "confusion_matrix"},
-                     indent=2, ensure_ascii=False))
+    log.info(
+        "TEST %s: F1=%.4f recall=%.4f precision=%.4f PR-AUC=%.4f",
+        best_name, test_metrics["f1"], test_metrics["recall"],
+        test_metrics["precision"], test_metrics["pr_auc"],
+    )
 
-    print("\n=== 8) Curva de aprendizaje (modelo ganador) ===")
+    log.info("=== 8) Curva de aprendizaje (modelo ganador) ===")
     save_learning_curve(best_name, build_models()[best_name], split["X_train"], split["y_train"])
 
-    print("\n=== 9) Interpretabilidad por pesos del modelo ===")
+    log.info("=== 9) Interpretabilidad por pesos del modelo ===")
     if "logistic_regression" in trained:
         interpret.save_top_weighted_terms(trained["logistic_regression"])
     else:
-        print("[pipeline] logistic_regression no entrenado; se omite analisis de pesos.")
+        log.warning("logistic_regression no entrenado; se omite analisis de pesos.")
+    if "random_forest" in trained:
+        interpret.save_rf_feature_importances(trained["random_forest"])
+    else:
+        log.warning("random_forest no entrenado; se omite feature importances.")
 
-    print("\n=== 10) Analisis de errores ===")
+    log.info("=== 10) Analisis de errores ===")
     source_test = split.get("source_test")
     interpret.error_analysis(
         best_model,
@@ -184,7 +213,7 @@ def main(argv=None):
     if source_test is not None:
         interpret.metrics_by_source(best_model, split["X_test"], split["y_test"], source_test)
 
-    print("\n=== 11) Tabla comparativa Enron-solo vs multi-fuente ===")
+    log.info("=== 11) Tabla comparativa Enron-solo vs multi-fuente ===")
     df_enron = load_enron()
     df_enron["text"] = (df_enron["subject"] + " " + df_enron["message"]).str.strip()
     df_enron["clean_text"] = preprocess_series(df_enron["text"])
@@ -202,7 +231,7 @@ def main(argv=None):
     )
     interpret.comparative_table(m_enron, m_multi)
 
-    print("\n=== 12) Auditoria adversarial (tokens de identidad Enron) ===")
+    log.info("=== 12) Auditoria adversarial (tokens de identidad Enron) ===")
 
     def _train_lr(X, y):
         m = build_models()["logistic_regression"]
@@ -213,15 +242,20 @@ def main(argv=None):
         _train_lr, split["X_train"], split["y_train"], split["X_test"], split["y_test"]
     )
 
+    log.info("=== 13) Evaluacion cruzada leave-one-corpus-out (3 experimentos) ===")
+    from .cross_eval import run_cross_eval
+    run_cross_eval()
+
     path = save_model("best_model", best_model)
     with open(config.MODELS_DIR / "best_model.meta.json", "w", encoding="utf-8") as f:
         json.dump(
             {"best_model": best_name, "val_metrics": val_metrics, "test_metrics": test_metrics},
             f, indent=2, ensure_ascii=False,
         )
-    print(f"[pipeline] Mejor modelo serializado en {path}")
+    log.info("Mejor modelo serializado en %s", path)
 
-    print(f"\n=== PIPELINE COMPLETO en {time.perf_counter() - t_start:.1f}s ===")
+    elapsed = time.perf_counter() - t_start
+    log.info("=== PIPELINE COMPLETO en %.1fs ===", elapsed)
     return 0
 
 

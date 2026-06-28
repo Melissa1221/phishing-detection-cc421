@@ -14,9 +14,15 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 from . import config
 
 
-# interpretar por pesos
+def _unwrap_model(model):
+    if hasattr(model, "best_estimator_"):
+        return model.best_estimator_
+    return model
+
+
 def _extract_lr_coef(pipeline):
     """extrae (tfidf, coef_) de un Pipeline que tiene LogisticRegression como clf"""
+    pipeline = _unwrap_model(pipeline)
     tfidf = pipeline.named_steps["tfidf"]
     clf = pipeline.named_steps["clf"]
     if hasattr(clf, "coef_"):
@@ -70,6 +76,44 @@ def save_top_weighted_terms(model, top_n: int = 30, name: str = "logistic_regres
         json.dump(result, f, indent=2, ensure_ascii=False)
 
     print(f"[interpret] Pesos guardados en {png_path} y {json_path}")
+    return result
+
+
+def save_rf_feature_importances(model, top_n: int = 30, name: str = "random_forest"):
+    model = _unwrap_model(model)
+    tfidf = model.named_steps["tfidf"]
+    clf = model.named_steps["clf"]
+    if not hasattr(clf, "feature_importances_"):
+        print(f"[interpret] {name} no tiene feature_importances_, se omite.")
+        return None
+
+    importances = clf.feature_importances_
+    terms = tfidf.get_feature_names_out()
+    idx_top = np.argsort(importances)[-top_n:][::-1]
+
+    result = [
+        {"term": terms[i], "importance": float(importances[i])} for i in idx_top
+    ]
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+    ax.barh(
+        [d["term"] for d in result[::-1]],
+        [d["importance"] for d in result[::-1]],
+        color="#e9c46a",
+    )
+    ax.set_title(f"Top {top_n} features — {name}")
+    ax.set_xlabel("Importancia (Gini)")
+    fig.tight_layout()
+
+    png_path = config.FIGURES_DIR / "rf_feature_importances.png"
+    fig.savefig(png_path, dpi=150)
+    plt.close(fig)
+
+    json_path = config.METRICS_DIR / "rf_feature_importances.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    print(f"[interpret] RF importances guardadas en {png_path} y {json_path}")
     return result
 
 
