@@ -18,18 +18,30 @@ def build_tfidf():
     )
 
 
-def stratified_split(texts, labels):
+def stratified_split(texts, labels, source=None):
     texts = np.asarray(texts)
     labels = np.asarray(labels)
 
     # separamos test primero y no lo tocamos hasta el final
-    X_trainval, X_test, y_trainval, y_test = train_test_split(
-        texts,
-        labels,
-        test_size=config.TEST_SIZE,
-        stratify=labels,
-        random_state=config.RANDOM_STATE,
-    )
+    if source is not None:
+        source = np.asarray(source)
+        X_trainval, X_test, y_trainval, y_test, _src_tv, source_test = train_test_split(
+            texts,
+            labels,
+            source,
+            test_size=config.TEST_SIZE,
+            stratify=labels,
+            random_state=config.RANDOM_STATE,
+        )
+    else:
+        X_trainval, X_test, y_trainval, y_test = train_test_split(
+            texts,
+            labels,
+            test_size=config.TEST_SIZE,
+            stratify=labels,
+            random_state=config.RANDOM_STATE,
+        )
+        source_test = None
 
     # del 85% restante sacamos validacion para que sea 15% del total
     val_frac = config.VAL_SIZE / (1.0 - config.TEST_SIZE)
@@ -41,7 +53,7 @@ def stratified_split(texts, labels):
         random_state=config.RANDOM_STATE,
     )
 
-    return {
+    out = {
         "X_train": X_train,
         "X_val": X_val,
         "X_test": X_test,
@@ -49,3 +61,6 @@ def stratified_split(texts, labels):
         "y_val": y_val,
         "y_test": y_test,
     }
+    if source_test is not None:
+        out["source_test"] = source_test
+    return out

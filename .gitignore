@@ -8,6 +8,7 @@ __pycache__/
 data/raw/*.zip
 data/raw/*.csv
 data/processed/*.csv
+data/*
 
 # jupyter
 .ipynb_checkpoints/
